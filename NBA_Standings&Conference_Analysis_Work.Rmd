@@ -1,0 +1,509 @@
+---
+title: 'NBA Standings & Conference Analysis Project'
+output: html_document
+author: "Elif KIR"
+date: "`r format(Sys.Date(), '%m/%d/%y')`"
+---
+
+```{r set options, include=FALSE}
+# DO NOT CHANGE THE LINE BELOW
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+``` {css styling, echo=FALSE}
+
+<style>
+.tocify {
+max-width: 175px !important;
+}
+</style>
+
+<style>
+.main-container {
+width: 100%;
+max-width: 940px;
+margin-left: 250px;
+margin-right: auto;
+}
+</style>
+
+```
+
+
+# Introduction  
+
+**Note:**    
+
+Throughout this document, the `season` column represents the year each season started. For example, the most recently completed season, 2020-2021, is in the data as season = 2020.  
+
+
+```{r load data, message = F, warning = F}
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+
+standings <- read_csv("combined_standings.csv")
+team_v_team <- read_csv("combined_team_vs_team_records.csv")
+```
+
+# Conference Standings    
+
+### Question 1  
+
+**QUESTION:** What is the overall win % to one decimal place (e.g. 41.3%, 74.9%) of teams in the Western Conference against teams in the Eastern Conference through the 2005-2020 regular seasons? If the West has more wins than losses against the East, your answer should be a number greater than 50% and vice versa.  
+
+```{r, Q1, warning=FALSE, message=FALSE}
+##classify the teams into conferences and create vectors with their short and bb_ref_team names
+teams_west_short=unique(standings$team_short[which(standings$conference=="West")])
+teams_east_short=unique(standings$team_short[which(standings$conference=="East")])
+teams_west_long=unique(standings$bb_ref_team_name[which(standings$conference=="West")])
+teams_east_long=unique(standings$bb_ref_team_name[which(standings$conference=="East")])
+
+##for each team in each season,derive the number of wins and losses against other conference teams from team_v_team data
+
+n=length(team_v_team$season)
+
+for(i in 1:n){
+  if(team_v_team[i,"bb_ref_team_name"] %in% teams_west_long){
+    team_v_team[i,'wins_against_other_conf']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% teams_east_short)],1,1)),na.rm = T)
+    team_v_team[i,'losses_against_other_conf']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% teams_east_short)],3,3)),na.rm = T)
+      
+  }else{
+    team_v_team[i,'wins_against_other_conf']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team)  %in% teams_west_short)],1,1)),na.rm = T)
+    team_v_team[i,'losses_against_other_conf']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% teams_west_short)],3,3)),na.rm = T)
+  }
+}
+
+##add new columns to standings table
+standings=left_join(standings,team_v_team[c("season","bb_ref_team_name","wins_against_other_conf","losses_against_other_conf")],by=c("season"="season","bb_ref_team_name"="bb_ref_team_name"))
+
+##overall win% of teams in the Western Conference against teams in the Eastern Conference through the 2005-2020 regular seasons
+
+standings %>%
+  group_by(conference)%>% 
+  mutate(conf_total_wins= sum(wins_against_other_conf), conf_total_losses= sum(losses_against_other_conf)) %>%
+  select(conference,conf_total_wins,conf_total_losses) %>%
+  mutate(overall_win_perc=conf_total_wins/(conf_total_wins+conf_total_losses))%>%
+  distinct_all()
+
+```
+
+
+**ANSWER 1:** 55.7%     
+
+### Question 2  
+
+**QUESTION:** Out of the past 16 years (2005-2020), how many years has the Western Conference had more wins than losses against the East?    
+
+```{r, Q2, warning=FALSE, message=FALSE}
+df=standings %>%
+       group_by(season,conference)%>% mutate(conf_total_wins= sum(wins_against_other_conf), conf_total_losses= sum(losses_against_other_conf)) %>%
+       filter(conference=='West' & conf_total_wins>conf_total_losses)%>%
+       select(season,conference) %>%
+       distinct_all()
+
+##view df
+df
+
+##answer
+nrow(df)
+
+```
+
+
+**ANSWER 2:** 15 out of 16 years.  
+
+### Question 3  
+
+**QUESTION:** In which year was the disparity between the conferences most extreme? What was the inter conference win-loss record (in the format WEST WINS - EAST WINS) in that year?  
+
+```{r, Q3, warning=FALSE, message=FALSE}
+extreme_parity=
+  standings %>%
+  group_by(season,conference)%>% 
+  mutate(conf_total_wins=sum(wins_against_other_conf),conf_total_losses=sum(losses_against_other_conf)) %>%
+  select(season,conference,conf_total_wins,conf_total_losses) %>%
+  mutate(overall_win_perc=conf_total_wins/(conf_total_wins+conf_total_losses))%>%
+  distinct_all()%>%
+## I need to place win_pct for east and west against each other at the same observation since I will calculate the difference between them in the next step. There are so many ways to do that.
+##I will use spread function to do that.
+  select(season,conference,overall_win_perc)%>%
+  spread(key = conference,value=overall_win_perc)%>%
+  mutate(abs_diff_west_east=abs(East-West))%>%
+  ungroup()%>%
+  filter(abs_diff_west_east==max(abs_diff_west_east))%>%
+  select(season,East,West,abs_diff_west_east)
+
+## overall wins against the other for each conference in that year
+extreme_parity["East_win"]=sum(standings$wins_against_other_conf[which(standings$season==extreme_parity$season & standings$conference=="East")])
+extreme_parity["West_win"]=sum(standings$wins_against_other_conf[which(standings$season==extreme_parity$season & standings$conference=="West")])
+
+#view the result
+extreme_parity
+
+```
+
+**ANSWER 3:** 2013, 284 - 166
+
+### Question4  
+
+**QUESTION:** For each season, find the playoff team with the lowest win % in each conference. What is the average win % of these teams from each conference over the 2005-2020 time period? In the case of ties within a season/conference pair, choose just one team.  
+
+For example, from the 2020 season, we would include Memphis from the West (38-34, 52.8%) and Washington from the East (34-38, 47.2%).  
+
+```{r, Q4, warning=FALSE, message=FALSE}
+
+standings%>%
+  group_by(season,conference) %>%
+  filter(playoffs=='Yes') %>%
+  arrange(desc(season),conference,desc(win_pct)) %>%
+#flag the team that had the lowest win percentage from each conference for each season and if there are more than one team with the same lowest percentage take the first one.
+  mutate(flag=if_else(win_pct==min(win_pct) & lag(win_pct,n = 1)!=win_pct, 1,0)) %>%
+  ungroup()%>%
+  filter(flag==1)%>%
+  group_by(conference)%>%
+  mutate(avg_win_pct=mean(win_pct))%>%
+  select(conference,avg_win_pct)%>%
+  distinct_all()
+
+``` 
+
+**ANSWER 4:**  
+
+WEST: 55.1% 
+EAST: 48.5%   
+
+### Question 5  
+
+**QUESTION:** Create a ggplot graph showing the record / win % of playoff and non-playoff teams against playoff and non-playoff teams from the **other** conference each season.  
+
+For example, your graph should include a visual representation of how Western Conference playoff teams have done against Eastern Conference non-playoff teams each season (as well as other combinations of conference and playoffs).  
+
+**ANSWER 5:**  
+
+```{r, Q5, warning=FALSE, message=FALSE, fig.width=10}
+##break down win loss records to 4 subgroups win against other conf playoff teams, win against other conf nonplayoff teams,losses against other conf playoff teams and losses against other conf nonplayoff teams to evaluate inter conference balance including subgroups effects in each conference in terms of playoff eligibility.
+
+##Since playoff teams change each year, this categorization is being created inside the loop. 
+for(i in 1:n){
+  west_playoff_short=unique(standings$team_short[which(standings$conference=="West" &standings$season==team_v_team$season[i] & standings$playoffs=="Yes")])
+  east_playoff_short=unique(standings$team_short[which(standings$conference=="East" &standings$season==team_v_team$season[i] & standings$playoffs=="Yes")])
+  west_noplyf_short=unique(standings$team_short[which(standings$conference=="West" &standings$season==team_v_team$season[i] & standings$playoffs=="No")])
+  east_noplyf_short=unique(standings$team_short[which(standings$conference=="East" &standings$season==team_v_team$season[i] & standings$playoffs=="No")])
+
+    if(team_v_team[i,"bb_ref_team_name"] %in% teams_west_long){
+      team_v_team[i,'wins_against_other_conf_playoff']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% east_playoff_short)],1,1)),na.rm = T)
+      team_v_team[i,'wins_against_other_conf_noplyf']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% east_noplyf_short)],1,1)),na.rm = T)
+      team_v_team[i,'losses_against_other_conf_playoff']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% east_playoff_short)],3,3)),na.rm = T)
+      team_v_team[i,'losses_against_other_conf_noplyf']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% east_noplyf_short)],3,3)),na.rm = T)
+    
+  }else{
+    
+    team_v_team[i,'wins_against_other_conf_playoff']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% west_playoff_short)],1,1)),na.rm = T)
+    team_v_team[i,'wins_against_other_conf_noplyf']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% west_noplyf_short)],1,1)),na.rm = T)
+    team_v_team[i,'losses_against_other_conf_playoff']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% west_playoff_short)],3,3)),na.rm = T)
+    team_v_team[i,'losses_against_other_conf_noplyf']=sum(as.numeric(substr(team_v_team[i,][which(colnames(team_v_team) %in% west_noplyf_short)],3,3)),na.rm = T)
+  }
+}
+
+##add new 4 columns calculated above to the standings data via left join query.
+
+standings=left_join(standings,team_v_team[c("season","bb_ref_team_name","wins_against_other_conf_playoff","wins_against_other_conf_noplyf","losses_against_other_conf_playoff","losses_against_other_conf_noplyf")],by=c("season"="season","bb_ref_team_name"="bb_ref_team_name"))
+
+#prep data for visualization. I prefer  long data format to visualize my data.
+
+df_visual= standings %>% 
+  group_by(season,conference,playoffs)%>%
+  mutate(win_pct_against_other_conf_playoff = (sum(wins_against_other_conf_playoff)/(sum(wins_against_other_conf_playoff)+sum(losses_against_other_conf_playoff))),
+         win_pct_against_other_conf_noplyf = (sum(wins_against_other_conf_noplyf)/(sum(wins_against_other_conf_noplyf)+sum(losses_against_other_conf_noplyf))))%>%
+  select(season,conference,playoffs,win_pct_against_other_conf_playoff,win_pct_against_other_conf_noplyf)%>%
+  gather(key =variable, value=value, -c(season,conference,playoffs)) %>%
+    distinct_all()%>%
+  group_by(conference,playoffs,variable)%>%
+  mutate(group_ID= cur_group_id())
+
+
+## create a dictionary to look up for the specific group which is represented by group_id
+group_id_dictionary=df_visual[c(2:4,6)] %>%
+  arrange(group_ID) %>%
+  distinct_all()
+
+##create visual
+# labels and breaks for X axis ,y axis, and groups to be visualized on the graph
+labels= paste(group_id_dictionary$conference,if_else(group_id_dictionary$playoffs=='Yes','PT','NPT'),'against',if_else(group_id_dictionary$conference=='West','East','West'),if_else(group_id_dictionary$variable=='win_pct_against_other_conf_playoff','PT','NPT'))
+Groups= as.character(df_visual$group_ID)
+
+breaks_x =seq(2005,2020,1)
+lbls_x=as.character(breaks_x)
+breaks_y=seq(0,100,10)
+lbls_y=as.character(breaks_y)
+
+#plot 
+
+ggplot(df_visual, aes(x = season, y = value*100)) + 
+  labs(title="Win % of playoff and non-playoff teams against one another from the other conference", 
+       y="Win %",
+       x="Season",
+       subtitle ='PT: Playoff Teams and NPT: Non-Playoff Teams',
+       color="") +
+  geom_line(aes(color = Groups),lwd=1.2) + 
+  geom_point(size = 1.3) +
+  scale_x_continuous(breaks =breaks_x ,labels=lbls_x) +
+  scale_y_continuous(breaks = breaks_y,labels = lbls_y)+
+  scale_color_manual(labels= labels,values = c("darkred", "steelblue","darkorange","pink","black","darkblue","purple","darkgreen"))+
+theme(axis.text.x = element_text(angle = 90, vjust=0.5, size = 8),  # rotate x axis text
+      panel.grid.minor = element_blank(),legend.position = "bottom")
+
+```
+
+### Question 6  
+
+**QUESTION:** Write up to two sentences describing any takeaways you have from your visual above that you could send in a group email to the data science department.    
+
+**ANSWER 6:** 
+From 2005 to 2020, in general, Playoff teams dominate the league regardless of the conference division, and the gap in their strength between playoff and non-playoff teams are getting larger in the last three years. Secondly, West teams are on average stronger than their counterparts from East with some exception years, and this domination is more stable for West playoff teams over East playoff teams. 
+
+# Point Margins and Schedules  
+
+### Question 7  
+
+
+
+```{r, calculate point margins, warning=FALSE, message=FALSE}
+
+#create a variable of season_average_point_margin for each team in each season
+standings["avg_point_margin"]=standings$points_scored_per_game-standings$points_allowed_per_game
+
+## in a loop, calculate each team's average opponents' point margin
+teams_short=unique(standings$team_short) #create a vector with all teams' short name
+
+for(i in 1:n){
+  matrix1=matrix(NA,1,30) #create a matrix to host the number of games played with each team for team&season i
+  colnms=as.vector(colnames(team_v_team)[3:32])
+  colnames(matrix1)=colnms #name the columns consistent with the source table's order
+  matrix2=matrix(NA,1,30) #create a matrix to host each teams season average of point margin for team&season i
+  colnames(matrix2)=teams_short #name the columns consistent with the source table's order
+  for(j in 1:30){
+    matrix1[1,j]=as.numeric(substr(team_v_team[i,j+2],1,1))+as.numeric(substr(team_v_team[i,j+2],3,3)) #store the total number of games played with each opponent
+    matrix2[1,j]=standings$avg_point_margin[which(standings$season==team_v_team$season[i] & standings$team_short==teams_short[j])]#store the each opponent season average point margin for regarding season
+  }
+  matrix1[which(is.na(matrix1)==1)]=0 #replace NA with 0 for the number of played game with the team itself
+  matrix1=matrix1[order(colnames(matrix1))] #order the matrix1 columns
+  matrix2=matrix2[order(colnames(matrix2))] #order the matrix2 columns
+  team_v_team[i,'avg_opp_point_margin']=(t(matrix2)%*%matrix1)/sum(matrix1,na.rm = T) #matrix mutliplication and divide it by the total numbers of game a team played in regarding season
+}
+
+##add the new variable to the standings data via left join
+
+standings=left_join(standings,team_v_team[c("season","bb_ref_team_name","avg_opp_point_margin")],by=c("season"="season","bb_ref_team_name"="bb_ref_team_name"))
+
+```
+
+
+**QUESTION:** What was CHI's opponents' average point margin (to two decimal places) in the 2016 season?  
+
+```{r, Q6, warning=FALSE, message=FALSE}
+standings %>% 
+  filter(season==2016,team_short=="CHI") %>% 
+  select(season,team_short,avg_point_margin,avg_opp_point_margin)
+
+```
+
+**ANSWER 7:** 0.32     
+
+### Question 8  
+
+**QUESTION:** As close as you can, reproduce the following plot. There is one point on the plot for each team/season combination.    
+
+**ANSWER 8:**  
+
+![](point_margin_plot.png)
+
+
+```{r, Q8, warning=FALSE, message=FALSE, fig.width=9,fig.height=5}
+standings %>%
+  ggplot(aes(y=avg_opp_point_margin,x = avg_point_margin,color=conference))+
+  geom_point()+
+  
+  labs(title="Team's Point Margin vs. Average Opponent Point Margin",
+       y="Average Opponent Point Margin",
+       x= "Team Point Margin")+
+  geom_smooth(method = "lm",se=F)+
+  annotate("text", x = 1, y = 0.658, label = "DAL 2011") +
+  annotate("text", x = 5.80, y = 0.397, label = "LAL 2019")+
+  annotate("text", x = -3.10, y = -0.822, label = "CHI 2019",)+
+  theme(legend.position = "bottom")
+
+```
+
+### Question 9  
+
+**QUESTION:** Write no more than 4 sentences explaining this plot and two takeaways to a non-technical member of the organization.  
+
+**ANSWER 9:**  
+This graph shows that teams with higher net points on average during the season have easier average opponents in comparison to other teams. However, since the overall performances in the west are relatively better than those in the east, teams in the west need more average net points to have easier average opponent. Considering that teams are playing more with the teams in their conferences, surviving and achieving the best ranks is relatively easier in the east. For example,an East team with 5 average net points has easier average opponent than a West team with the same average net points.
+
+### Question 10  
+
+
+**PART (a):** What do you conclude about the relative strength of schedule for the two labeled teams (DAL 2011 and LAL 2019) (compared to all the rest of the teams) at the top of the plot? Please answer in 1 sentence.     
+
+**ANSWER 10 (a):**
+They have abnormally higher strength of schedule (higher average opponent point margin) in comparison with the other observations at the same team point margin (potential outliers).
+
+**PART (b):** Do you have any hypotheses as to why teams from 2019 and 2011 appear at the extremes of this graph? Please answer in no more than 3 sentences.    
+
+**ANSWER 10 (b):**
+The 2011-2012 season has started late due to lockout in the NBA and the 2019-2020 season has been suspended a month after the Allstar due to the covid19 pandemic. 
+For both years, the number of games teams played with the teams from other conferences and other divisions is less than the normal years due to the changed and incompleted schedules, respectively. This resulted in much tougher effects of schedule for some teams in the West such as DAL and LAL. 
+
+# Logistic Regression   
+
+### Question 11  
+
+**QUESTION:** Fit a logistic regression model on all of the data 2005-2020 predicting the chance a team makes the playoffs from only its win % in that season. What are the coefficients?   
+
+```{r, Q11, warning=FALSE, message=FALSE}
+standings["playoffs_ind"]=if_else(standings$playoffs=='Yes',1,0)
+
+logit_playoff=glm(playoffs_ind ~ win_pct,data=standings,family='binomial')
+summary(logit_playoff)
+
+```
+
+
+**ANSWER 11:** Intercept: -20.88, win_pct: 42.40   
+
+### Question 12  
+
+**QUESTION:** Using your model from the previous question, what is the probability that a team with exactly a 50% win rate will make the playoffs (rounded to the nearest decimal, e.g. 44.7%)?   
+
+```{r, Q12, warning=FALSE, message=FALSE}
+newdata=data.frame(win_pct= 0.5)
+round(predict(logit_playoff,newdata,type = "response"),3)
+
+```
+
+
+**ANSWER 12:** 58.0%.   
+
+### Question 13  
+
+Add a indicator variable called `is_west` to your regression model that is TRUE if the team is in the Western Conference.    
+
+```{r, add indicator to logistic regression model, warning=FALSE, message=FALSE}
+standings["is_west"]=if_else(standings$conference=='West',1,0)
+
+logit_playoff=glm(playoffs_ind ~ win_pct+is_west,data=standings,family='binomial')
+
+```
+
+**QUESTION:** What is the `is_west` coefficient and what does it mean? What is the prediction to the nearest decimal for a team in the East and a team in the West with a 50% win rate?  
+
+```{r, Q13, warning=FALSE, message=FALSE}
+summary(logit_playoff)
+#prediction for a team in East with a 50% win rate
+newdata=data.frame(win_pct= 0.5,is_west=0)
+round(predict(logit_playoff,newdata,type = "response"),3)
+
+#prediction for a team in West with a 50% win rate
+newdata=data.frame(win_pct= 0.5,is_west=1)
+round(predict(logit_playoff,newdata,type = "response"),3)
+
+```
+
+**ANSWER 13:**    
+The coefficient is -2.875. Explanation:There is a statistically significant negative correlation between being West team and achieving Playoffs. This means a Western team  has a less chance for playoffs than the East team when we keep the win percentages the same for both teams.
+EAST: 83.4%   
+WEST: 22.1%   
+
+### Question 14  
+
+We are going to investigate whether it's possible that the relationship you found in the previous question could be reasonably explained by randomness. We're only looking at 30 teams over 16 years, so sample size might be a concern. To do this, you will perform a permutation test.  
+
+For each of 10,000 iterations, randomly reorder the conference labels so that in each iteration, there are 15 random teams labeled as East and 15 teams labeled as West. For example, in a given iteration, we might have assigned OKC to the East and BKN to the West, but MIA might still be assigned to East. For each iteration, fit a new logistic regression model with the same variables as in question 13 (predicting making the playoffs from win % and `is_west`) and extract the `is_west` coefficient. Save all 10,000 `is_west` coefficients in a vector or dataframe.   
+
+```{r, permutation test calculations, warning=FALSE, message=FALSE}
+#Reproducability
+set.seed(2)
+n=10000
+random_is_west_coef=c() #prepare a empty vector to save coefficients
+
+conference_ind=  c(rep(x = 0,15),rep(x=1,15)) #15 west and 15 east team indicators
+
+for(i in 1:n){
+  random_samp=sample(conference_ind,size = 30,replace = F)#randomly distribute the is_west labels
+  permuteted.conf_divison=as_tibble(cbind(teams_short,random_samp))
+  colnames(permuteted.conf_divison)=c("team_short","is_west_permute")
+  standings2=left_join(standings[c("season","team_short","playoffs_ind","win_pct")],permuteted.conf_divison,by=c("team_short"))
+  model_playoffs=glm(playoffs_ind ~ win_pct+is_west_permute,data=standings2,family='binomial')#run logistic regression with random is_west labels
+  random_is_west_coef[i]=summary(model_playoffs)$coefficient[3]#save the coefficient
+}
+
+```
+
+**PART (a):** Make a ggplot comparing these 10,000 randomized `is_west` coefficients to the `is_west` coefficient you observed in question 13.  
+
+**ANSWER 14 (a):**  
+```{r, permutation test ggplot, warning=FALSE, message=FALSE} 
+#prepare the data for visualization
+random_is_west_coef=as.data.frame(random_is_west_coef)
+colnames(random_is_west_coef)="coefs"
+#plot
+g <- ggplot(random_is_west_coef,aes(coefs))
+g + geom_histogram(aes(y=..density..), colour="darkblue", fill="white",binwidth = 0.25)+
+  geom_density(aes(alpha=9),position = "stack",show.legend = F,color="darkblue", fill="lightblue") + 
+  labs(title="Density plot", 
+       subtitle="Coefficients' probability distribution",
+       x="Coefficient for is_west variable in logistic regression")+
+  geom_vline(aes(xintercept=-2.8751),linetype="dotted",colour="purple")+
+  geom_point(data = tibble(x=-2.8751,y=0), aes(x,y,))+
+  annotate("text", x=-2.85, y = 0.03, label = "Q13=-2.875")
+
+```
+
+**PART (b):** What do you conclude from your plot? Please answer in no more than 3 sentences.  
+
+**ANSWER 14 (b):** 
+When we do permutation test for is_west variable and assign this label to 15 team out of 30 randomly, we see that coefficients of this permuted variable in the same logistic regression as Q13 have an almost normal distribution. When we compare our original coefficient in Q13, -2.875, and the histogram that shows the random distribution, we can conclude that coefficient value -2.875 is not a case of randomness. So, the relationship of being a West team and achieving playoffs that we explained in Q13 can not be explained by the randomness and this relationship matters. 
+
+# Short Answer (Modeling)  
+
+### Question 15  
+
+Two rookies come into the league and each play the same number of minutes. Rookie A shot 37/100 from 3 and rookie B shot 20/50 from 3. The general manager asks you which player you expect to be a better three point shooter long term. You have a week to work on this hypothetical project.  
+
+**PART (a):** What kind of data and information would you collect in order to answer this? Describe the features you'd use and the model you'd build to answer the question. You don't need to actually do the work here, just describe your process. Please limit your response to no more than 5 sentences.
+
+**ANSWER 15 (a):**
+First, I'd choose my sample as 3pt shooter rookies in the last 4 years played in NBA, and my response variable would be these players' average 3pt% in NBA after their first year. Then, I would use the following average per game metrics: the number of 3 pt attempts,free-throw percentages, 3 pt percentages from their previous performances in  NCAA, the same metrics in NBA restricted to the minutes player A and B played so far. I believe these metrics represent a player's role in team offense, shooting fundamentals, and their 3 pt shooting skills. I would also add the strength of schedule and offensive ratings of their teams to the model to consider average opponent's toughness and their teams' possession rates. With these predictors, I would run a gradient boosting model to predict players' NBA 3pt performances by minimizing the error rate. Another alternative model would be weighted linear regression to highlight the importance of free thrown% and 3pt attempts in explaining the variance based on the literature knowledge. Finally, I will predict players A and B's 3 pt performances once the model is trained and tested.
+
+**PART (b):** If you had to choose today without doing any further research, would you pick player A or player B? Why? Please limit your response to no more than 2 sentences.
+
+**ANSWER 15 (b):**
+Even though player A with 37% seems slightly worse than player B with 40%, I’d choose player A since the number of 3 pt attempts for player A with 100 is twice the one for player B with 50. Based on the Law of Large Numbers, I will be more confident to say player A will play with 37% on average from 3 in the long term, whereas player B is more unpredictable since the sample size of his attempts is relatively small to foresee its convergence of 3P%.
+
+
+### Question 16  
+
+**QUESTION:** You are studying offensive rebounding as part of your job as Data Analyst with an NBA team. You are trying to create a model that will help predict when there will be an offensive rebound. 
+
+Your first model is a GBM (gradient boosted machine) that includes the location data (at the time the ball hits the rim) and height for all 10 players on the floor. It outputs a prediction for the percentage chance each player will collect the rebound.   
+
+Your second model is a logistic regression model that includes the shot distance, the number of players who crash the boards, and the distance to the rim for the closest two offensive and defensive players. This model outputs a prediction for the percentage chance the offensive team secures the rebound.  
+
+In no more than 4 sentences, how would you decide which model to move forward with? Why?  
+
+**ANSWER 16:**    
+
+I will move forward with the second model since the metrics in the model would better explain when there is an offensive rebound. First, the shot distance determines the spatial distribution of the ball potentially hops on, the second, as the number of players who crash the board increases, the chance of offensive rebound is too, and finally, the distance of the closest players to the basket gives an idea about the advantages of positioning depending on the case. Because of these three relevant relations, the second model would perform better. Since the first model has only data about the final position when the ball hits the rim, we would not benefit from the information such as the position distribution when the shot is released, the players under the arc, or the intention of players who moves.
+
+### Question 17  
+
+**QUESTION:** Your coach hears about the project and is interested in the tradeoffs between offensive rebounding and transition defense. He asks you to expand the research you have been doing into a study to help him determine when/how many players he should send to crash the offensive boards.  
+
+How would you use one of the models described above to answer the question for the coach? (Please select one of the two models to write about for this portion of the question.) What other research would be necessary to effectively answer this question for the coach? Describe, in general terms, your plan to answer the coach's question and what you would plan to present to him. Please answer this question in no more than 6 sentences.
+
+**ANSWER 17:** 
+
+I will use the second model in Q16 to differentiate positions in which the team has a high probability of offensive rebound with how many players crashing the boards. This estimation would also determine the number of the players who can get back early to defense, depending on the position. Another thing about the tradeoff is that focusing on the offensive rebound forces the opponent team to focus on the defensive rebound, which would undermine their chance of fast break or fast transition offense, which is worth researching.  Also, further research would be necessary to understand the relativity between the contribution to defensive score by running back early to defense and at what rate the team loses the chance of an offensive rebound. Another research would be for what kind of offense strategies before rebounding equalize or extreme this tradeoff to decide easily to gain on both sides of the game. To present my result to the coach, I would choose position examples and explain how to find the optimal scenario by deciding when to go for offensive rebounds with how many players.
